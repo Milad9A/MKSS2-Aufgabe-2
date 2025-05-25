@@ -1,0 +1,297 @@
+{
+    "info": {
+        "name": "Robot API",
+        "description": "A collection for testing the Robot API endpoints with HATEOAS navigation and pagination",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8080",
+            "type": "string"
+        },
+        {
+            "key": "robotId",
+            "value": "robot1",
+            "type": "string"
+        },
+        {
+            "key": "itemId",
+            "value": "item1",
+            "type": "string"
+        },
+        {
+            "key": "actionsLink",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "nextPageLink",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "prevPageLink",
+            "value": "",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "Get Robot Status",
+            "request": {
+                "method": "GET",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/status",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "status"
+                    ]
+                },
+                "description": "Returns the current status of a robot including position, energy, and inventory. Includes HATEOAS links."
+            },
+            "response": [],
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "// Test that response is OK",
+                            "pm.test(\"Status code is 200\", function () {",
+                            "    pm.response.to.have.status(200);",
+                            "});",
+                            "",
+                            "// Parse the response body",
+                            "const responseBody = pm.response.json();",
+                            "",
+                            "// Test for presence of HATEOAS links",
+                            "pm.test(\"Response contains HATEOAS links\", function () {",
+                            "    pm.expect(responseBody.links).to.be.an('array').and.not.to.be.empty;",
+                            "});",
+                            "",
+                            "// Extract and store action links for later use",
+                            "if (responseBody.links) {",
+                            "    responseBody.links.forEach(function(link) {",
+                            "        if (link.rel === 'actions') {",
+                            "            pm.environment.set('actionsLink', link.href);",
+                            "        }",
+                            "    });",
+                            "}"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Move Robot",
+            "request": {
+                "method": "POST",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/move",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "move"
+                    ]
+                },
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"direction\": \"up\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "description": "Moves a robot in the specified direction (up, down, left, right)."
+            },
+            "response": []
+        },
+        {
+            "name": "Pickup Item",
+            "request": {
+                "method": "POST",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/pickup/{{itemId}}",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "pickup",
+                        "{{itemId}}"
+                    ]
+                },
+                "description": "Makes a robot pick up an item and add it to its inventory."
+            },
+            "response": []
+        },
+        {
+            "name": "Put Down Item",
+            "request": {
+                "method": "POST",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/putdown/{{itemId}}",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "putdown",
+                        "{{itemId}}"
+                    ]
+                },
+                "description": "Makes a robot put down an item from its inventory."
+            },
+            "response": []
+        },
+        {
+            "name": "Update Robot State",
+            "request": {
+                "method": "PATCH",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/state",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "state"
+                    ]
+                },
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"energy\": 80,\n  \"position\": {\n    \"x\": 5,\n    \"y\": 5\n  }\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "description": "Updates robot's state (energy and/or position)."
+            },
+            "response": []
+        },
+        {
+            "name": "Get Robot Actions",
+            "request": {
+                "method": "GET",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/actions?page={{page}}&size={{size}}",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "actions"
+                    ],
+                    "query": [
+                        {
+                            "key": "page",
+                            "value": "{{page}}",
+                            "description": "Page number (starts at 1)"
+                        },
+                        {
+                            "key": "size",
+                            "value": "{{size}}",
+                            "description": "Number of items per page"
+                        }
+                    ]
+                },
+                "description": "Returns a paginated history of actions performed by the robot with HATEOAS links for navigation."
+            },
+            "response": [],
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "// Test that response is OK",
+                            "pm.test(\"Status code is 200\", function () {",
+                            "    pm.response.to.have.status(200);",
+                            "});",
+                            "",
+                            "// Parse the response body",
+                            "const responseBody = pm.response.json();",
+                            "",
+                            "// Test for pagination information",
+                            "pm.test(\"Response contains pagination info\", function () {",
+                            "    pm.expect(responseBody.page).to.be.an('object');",
+                            "    pm.expect(responseBody.page.number).to.be.a('number');",
+                            "    pm.expect(responseBody.page.size).to.be.a('number');",
+                            "    pm.expect(responseBody.page.totalElements).to.be.a('number');",
+                            "    pm.expect(responseBody.page.totalPages).to.be.a('number');",
+                            "});",
+                            "",
+                            "// Test for HATEOAS links",
+                            "pm.test(\"Response contains navigation links\", function () {",
+                            "    pm.expect(responseBody.links).to.be.an('array');",
+                            "});",
+                            "",
+                            "// Store navigation links for later use",
+                            "if (responseBody.links) {",
+                            "    responseBody.links.forEach(function(link) {",
+                            "        if (link.rel === 'next') {",
+                            "            pm.environment.set('nextPageLink', link.href);",
+                            "        }",
+                            "        if (link.rel === 'previous') {",
+                            "            pm.environment.set('prevPageLink', link.href);",
+                            "        }",
+                            "    });",
+                            "}"
+                        ]
+                    }
+                },
+                {
+                    "listen": "prerequest",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "// Set default values for pagination if not already set",
+                            "if (!pm.environment.get('page')) {",
+                            "    pm.environment.set('page', 1);",
+                            "}",
+                            "",
+                            "if (!pm.environment.get('size')) {",
+                            "    pm.environment.set('size', 5);",
+                            "}"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Attack Robot",
+            "request": {
+                "method": "POST",
+                "url": {
+                    "raw": "{{baseUrl}}/robot/{{robotId}}/attack/robot2",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "robot",
+                        "{{robotId}}",
+                        "attack",
+                        "robot2"
+                    ]
+                },
+                "description": "Makes one robot attack another, reducing the target's energy."
+            },
+            "response": []
+        }
+    ]
+}
