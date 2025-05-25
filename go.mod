@@ -1,4 +1,4 @@
-module aufgabe-1
+module aufgabe-2
 
 go 1.21.5
 

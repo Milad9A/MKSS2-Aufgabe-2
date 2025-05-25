@@ -20,7 +20,7 @@ A simple REST API server for controlling and managing robots in a virtual enviro
 
    ```
    git clone <repository-url>
-   cd aufgabe-1
+   cd aufgabe-2
    ```
 
 2. Install dependencies:
@@ -35,6 +35,35 @@ A simple REST API server for controlling and managing robots in a virtual enviro
    ```
 
 The server will start on port 8080.
+
+### Docker Setup
+
+You can also run the application in a Docker container:
+
+1. Build the Docker image:
+
+   ```
+   docker build -t robot-api .
+   ```
+
+2. Run the container:
+
+   ```
+   docker run -p 8080:8080 --name robot-container robot-api
+   ```
+
+3. The API will be accessible at http://localhost:8080
+
+4. To stop the container:
+
+   ```
+   docker stop robot-container
+   ```
+
+5. If you need to debug inside the container:
+   ```
+   docker exec -it robot-container /bin/sh
+   ```
 
 ## Automated Testing
 
