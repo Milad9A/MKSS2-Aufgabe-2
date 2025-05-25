@@ -1,0 +1,89 @@
+# GitLab CI/CD Pipeline for Robot API
+
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  GO_VERSION: "1.21"
+  DOCKER_IMAGE_NAME: "robot-api"
+  DOCKER_IMAGE_TAG: "latest"
+  AZURE_RESOURCE_GROUP: "robotApiGroup"
+  AZURE_LOCATION: "westeurope"
+  AZURE_CONTAINER_NAME: "robot-api-container"
+  AZURE_DNS_LABEL: "robot-api-${CI_PROJECT_NAME}"
+
+# This job builds the Go application
+build:
+  stage: build
+  image: golang:${GO_VERSION}-alpine
+  script:
+    - go mod download
+    - go build -o robot-api .
+  artifacts:
+    paths:
+      - robot-api
+    expire_in: 1 hour
+
+# This job runs unit tests
+test:
+  stage: test
+  image: golang:${GO_VERSION}-alpine
+  script:
+    - go mod download
+    - go test -v ./...
+  dependencies:
+    - build
+
+# This job builds the Docker image and deploys to Azure
+deploy:
+  stage: deploy
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  dependencies:
+    - build
+  before_script:
+    # Install dependencies for Azure CLI
+    - apk add --no-cache python3 py3-pip bash curl
+    - pip3 install --no-cache-dir azure-cli
+    # Login to GitLab Container Registry
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    # Login to Azure
+    - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
+  script:
+    # Build Docker image
+    - docker build -t $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
+
+    # Push Docker image to GitLab Container Registry
+    - docker push $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+
+    # Create Azure Resource Group if it doesn't exist
+    - az group create --name $AZURE_RESOURCE_GROUP --location $AZURE_LOCATION || true
+
+    # Register Microsoft.ContainerInstance provider if not already registered
+    - az provider register --namespace Microsoft.ContainerInstance || true
+
+    # Check if container exists and delete it if it does
+    - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
+
+    # Deploy to Azure Container Instances
+    - >
+      az container create 
+      --resource-group $AZURE_RESOURCE_GROUP 
+      --name $AZURE_CONTAINER_NAME 
+      --image $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+      --dns-name-label $AZURE_DNS_LABEL 
+      --ports 8080 
+      --registry-username $CI_REGISTRY_USER 
+      --registry-password $CI_REGISTRY_PASSWORD 
+      --os-type Linux 
+      --cpu 1 
+      --memory 1.5
+
+    # Display the FQDN of the deployed container
+    - az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn
+  only:
+    - main
+    - master
