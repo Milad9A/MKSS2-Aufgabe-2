@@ -262,111 +262,181 @@ This pre-populated data allows you to immediately test the API's functionality, 
 
 ## Cloud Deployment
 
-### Pushing to GitLab Container Registry
+### Manual Deployment Steps
+
+#### Step 1: Create GitLab Personal Access Token
+
+1. Go to GitLab → Settings → Access Tokens
+2. Create a new token with:
+   - Name: "Docker Registry Access"
+   - Scopes: `read_registry`, `write_registry`
+   - Expiration: Choose a long duration (e.g., 1 year)
+3. Save the token securely - you'll need it for Docker login
+
+#### Step 2: Build and Push to GitLab Container Registry
 
 1. Build the Docker image locally:
 
-   ```
+   ```bash
    docker build -t robot-api .
    ```
 
-2. Tag the image according to GitLab's naming scheme:
+2. Tag the image using the required HSB naming schema:
 
+   ```bash
+   docker tag robot-api registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT_NAME/robot-api:latest
    ```
-   docker tag robot-api registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/PROJECT_NAME/robot-api:latest
-   ```
 
-   Replace `PROJECT_NAME` with your GitLab project name.
+   Replace `YOUR_PROJECT_NAME` with your actual GitLab project name.
 
-3. Create a Personal Access Token (PAT) in GitLab:
+3. Login to GitLab Container Registry:
 
-   - Go to GitLab → Settings → Access Tokens
-   - Create a new token with `read_registry` and `write_registry` scopes
-   - Save the token securely
-
-4. Login to the GitLab Container Registry:
-
-   ```
+   ```bash
    docker login registry.gitlab.com
    ```
 
-   Use your GitLab username and the PAT as password.
+   - Username: Your GitLab username
+   - Password: The PAT you created in Step 1
 
-5. Push the image to the GitLab Container Registry:
-   ```
-   docker push registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/PROJECT_NAME/robot-api:latest
+4. Push the image:
+
+   ```bash
+   docker push registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT_NAME/robot-api:latest
    ```
 
-### Deploying to Azure Container Instances
+#### Step 3: Deploy to Azure Container Instances
 
 1. Login to Azure CLI:
 
-   ```
+   ```bash
    az login
    ```
 
-2. Create a resource group if you don't have one:
+2. Create a resource group:
 
-   ```
+   ```bash
    az group create --name robotApiGroup --location westeurope
    ```
 
-3. Register the Microsoft.ContainerInstance provider:
+3. Register the Container Instance provider:
 
-   ```
+   ```bash
    az provider register --namespace Microsoft.ContainerInstance
    ```
 
-   Wait a few moments for the registration to complete.
+4. Wait for provider registration (this may take a few minutes):
 
-4. Deploy the container from GitLab Container Registry:
-
+   ```bash
+   az provider show --namespace Microsoft.ContainerInstance --query registrationState
    ```
+
+5. Deploy the container:
+
+   ```bash
    az container create \
      --resource-group robotApiGroup \
      --name robot-api-container \
-     --image registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/PROJECT_NAME/robot-api:latest \
+     --image registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT_NAME/robot-api:latest \
      --dns-name-label robot-api-YOUR_USERNAME \
      --ports 8080 \
+     --registry-login-server registry.gitlab.com \
      --registry-username YOUR_GITLAB_USERNAME \
      --registry-password YOUR_GITLAB_PAT \
      --os-type Linux \
      --cpu 1 \
-     --memory 1.5
+     --memory 1.5 \
+     --environment-variables PORT=8080
    ```
 
-   Replace:
+   Replace the placeholders with your actual values.
 
-   - `PROJECT_NAME` with your GitLab project name
-   - `YOUR_USERNAME` with a unique name (this will be part of your DNS name)
-   - `YOUR_GITLAB_USERNAME` with your GitLab username
-   - `YOUR_GITLAB_PAT` with your GitLab Personal Access Token
+6. Get the public URL:
 
-5. Check deployment status:
-
-   ```
+   ```bash
    az container show \
      --resource-group robotApiGroup \
      --name robot-api-container \
-     --query "{FQDN:ipAddress.fqdn,ProvisioningState:provisioningState}" \
-     --out table
+     --query ipAddress.fqdn \
+     --output tsv
    ```
 
-6. Your API is now accessible at:
+   Your API will be accessible at `http://[FQDN]:8080`
+
+### Automated Deployment with GitLab CI/CD
+
+The project includes a GitLab CI/CD pipeline that automatically:
+
+1. Builds the Go application
+2. Runs unit tests
+3. Builds and pushes the Docker image to GitLab Container Registry
+4. Deploys to Azure Container Instances
+
+#### Setting up CI/CD Variables
+
+In your GitLab project, go to Settings → CI/CD → Variables and add:
+
+1. **Azure Service Principal Variables**:
+
+   - `AZURE_SP_ID`: Azure Service Principal Application ID
+   - `AZURE_SP_PASSWORD`: Azure Service Principal Password
+   - `AZURE_TENANT_ID`: Azure Tenant ID
+
+2. **GitLab Registry Variables** (usually auto-populated):
+   - `CI_REGISTRY_USER`: GitLab registry username
+   - `CI_REGISTRY_PASSWORD`: GitLab registry password
+
+#### Creating Azure Service Principal
+
+To create a Service Principal for automated deployment:
+
+```bash
+az ad sp create-for-rbac --name "robot-api-sp" --role contributor --scopes /subscriptions/YOUR_SUBSCRIPTION_ID
+```
+
+This will output the credentials you need for the CI/CD variables.
+
+#### Pipeline Execution
+
+Once variables are configured, the pipeline will automatically run on pushes to `main` or `master` branches. You can monitor the deployment in GitLab's CI/CD → Pipelines section.
+
+### Verifying Deployment
+
+1. Check container status:
+
+   ```bash
+   az container show --resource-group robotApiGroup --name robot-api-container --query provisioningState
    ```
-   http://robot-api-YOUR_USERNAME.westeurope.azurecontainer.io:8080
+
+2. Get logs if needed:
+
+   ```bash
+   az container logs --resource-group robotApiGroup --name robot-api-container
+   ```
+
+3. Test the API:
+
+   ```bash
+   curl http://[YOUR_FQDN]:8080/robot/robot1/status
    ```
 
 ### Cleanup
 
-To remove your deployed container and avoid unnecessary costs:
+To avoid charges, clean up resources when done:
 
-```
+```bash
+# Delete the container
 az container delete --resource-group robotApiGroup --name robot-api-container --yes
-```
 
-To delete the entire resource group:
-
-```
+# Delete the resource group (removes everything)
 az group delete --name robotApiGroup --yes
 ```
+
+### Troubleshooting
+
+Common issues and solutions:
+
+1. **Registry authentication failed**: Verify your PAT has the correct scopes and hasn't expired
+2. **Provider not registered**: Wait longer for Microsoft.ContainerInstance registration
+3. **DNS name already taken**: Use a more unique DNS label
+4. **Container fails to start**: Check container logs with `az container logs`
+5. **Port not accessible**: Ensure port 8080 is specified in the container creation command

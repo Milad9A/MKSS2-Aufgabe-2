@@ -1,13 +1,18 @@
 {
     "info": {
         "name": "Robot API",
-        "description": "A collection for testing the Robot API endpoints with HATEOAS navigation and pagination",
+        "description": "A collection for testing the Robot API endpoints with HATEOAS navigation and pagination. Supports both local and cloud deployment testing.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "variable": [
         {
             "key": "baseUrl",
             "value": "http://localhost:8080",
+            "type": "string"
+        },
+        {
+            "key": "cloudUrl",
+            "value": "http://robot-api-Milad9A.westeurope.azurecontainer.io:8080",
             "type": "string"
         },
         {
@@ -37,6 +42,78 @@
         }
     ],
     "item": [
+        {
+            "name": "Health Check",
+            "request": {
+                "method": "GET",
+                "url": {
+                    "raw": "{{baseUrl}}/health",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "health"
+                    ]
+                },
+                "description": "Health check endpoint to verify API is running"
+            },
+            "response": [],
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test(\"Status code is 200\", function () {",
+                            "    pm.response.to.have.status(200);",
+                            "});",
+                            "",
+                            "pm.test(\"Response contains health status\", function () {",
+                            "    const responseBody = pm.response.json();",
+                            "    pm.expect(responseBody.status).to.eql('healthy');",
+                            "    pm.expect(responseBody.service).to.eql('robot-api');",
+                            "});"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Get Available Items",
+            "request": {
+                "method": "GET",
+                "url": {
+                    "raw": "{{baseUrl}}/items",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "items"
+                    ]
+                },
+                "description": "Returns all available items in the world"
+            },
+            "response": [],
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test(\"Status code is 200\", function () {",
+                            "    pm.response.to.have.status(200);",
+                            "});",
+                            "",
+                            "pm.test(\"Response contains items array\", function () {",
+                            "    const responseBody = pm.response.json();",
+                            "    pm.expect(responseBody.available_items).to.be.an('array');",
+                            "    pm.expect(responseBody.total_count).to.be.a('number');",
+                            "});"
+                        ]
+                    }
+                }
+            ]
+        },
         {
             "name": "Get Robot Status",
             "request": {

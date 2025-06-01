@@ -82,6 +82,20 @@ func (s *RobotStorage) RemoveItem(itemID string) {
 	delete(s.items, itemID)
 }
 
+// GetAvailableItems returns a list of all available items in the world
+func (s *RobotStorage) GetAvailableItems() []string {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	var items []string
+	for itemID, exists := range s.items {
+		if exists {
+			items = append(items, itemID)
+		}
+	}
+	return items
+}
+
 // Initialize storage with some example data
 func (s *RobotStorage) Initialize() {
 	// Create some example robots
@@ -90,7 +104,7 @@ func (s *RobotStorage) Initialize() {
 		Position:  Position{X: 0, Y: 0},
 		Direction: "north",
 		Energy:    100,
-		Inventory: []string{},
+		Inventory: []string{}, // Start with empty inventory for testing
 		Actions: []Action{
 			{
 				Type:      "create",
@@ -155,9 +169,12 @@ func (s *RobotStorage) Initialize() {
 		},
 	}
 
+	// Initialize items - always ensure these are available for testing
 	s.items["item1"] = true
 	s.items["item2"] = true
 	s.items["item3"] = true
+	s.items["item4"] = true // Additional item for testing
+	s.items["item5"] = true // Additional item for testing
 
 	s.robots["robot1"] = robot1
 	s.robots["robot2"] = robot2

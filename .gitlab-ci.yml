@@ -1,4 +1,5 @@
-# GitLab CI/CD Pipeline for Robot API
+# GitLab CI/CD Pipeline für Robot API - MKSS2 Aufgabe 3
+# HSB Bremen - Laborsubgruppe
 
 stages:
   - build
@@ -9,34 +10,64 @@ variables:
   GO_VERSION: "1.21"
   DOCKER_IMAGE_NAME: "robot-api"
   DOCKER_IMAGE_TAG: "latest"
+  # GitLab Container Registry für HSB
+  DOCKER_REGISTRY: "registry.gitlab.com/hsbremen/mkss2/sose-2025/labor"
+  # Azure Deployment Konfiguration
   AZURE_RESOURCE_GROUP: "robotApiGroup"
   AZURE_LOCATION: "westeurope"
   AZURE_CONTAINER_NAME: "robot-api-container"
   AZURE_DNS_LABEL: "robot-api-${CI_PROJECT_NAME}"
 
-# This job builds the Go application
+# BUILD STAGE: Go-Anwendung kompilieren
 build:
   stage: build
   image: golang:${GO_VERSION}-alpine
+  before_script:
+    - echo "🔨 Building Robot API..."
+    - go version
   script:
+    - echo "📦 Downloading dependencies..."
     - go mod download
+    - go mod verify
+    - echo "🔨 Building application..."
     - go build -o robot-api .
+    - echo "✅ Build completed successfully"
+    - ls -la robot-api
   artifacts:
     paths:
       - robot-api
     expire_in: 1 hour
+    reports:
+      # Für GitLab Reports
+      junit: report.xml
+  cache:
+    key: go-mod-cache
+    paths:
+      - /go/pkg/mod/
 
-# This job runs unit tests
+# TEST STAGE: Unit Tests ausführen
 test:
   stage: test
   image: golang:${GO_VERSION}-alpine
-  script:
-    - go mod download
-    - go test -v ./...
   dependencies:
     - build
+  before_script:
+    - echo "🧪 Running unit tests..."
+    - go version
+  script:
+    - echo "📦 Downloading dependencies for tests..."
+    - go mod download
+    - echo "🧪 Executing unit tests..."
+    - go test -v -cover ./...
+    - echo "✅ All tests passed"
+  coverage: '/coverage: \d+\.\d+% of statements/'
+  cache:
+    key: go-mod-cache
+    paths:
+      - /go/pkg/mod/
+    policy: pull
 
-# This job builds the Docker image and deploys to Azure
+# DEPLOY STAGE: Docker Image erstellen und in Azure deployen
 deploy:
   stage: deploy
   image: docker:20.10.16
@@ -44,46 +75,151 @@ deploy:
     - docker:20.10.16-dind
   dependencies:
     - build
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
   before_script:
-    # Install dependencies for Azure CLI
-    - apk add --no-cache python3 py3-pip bash curl
+    - echo "🚀 Starting deployment process..."
+    # Azure CLI und Tools installieren
+    - apk add --no-cache python3 py3-pip bash curl wget jq
     - pip3 install --no-cache-dir azure-cli
-    # Login to GitLab Container Registry
+
+    # Docker Registry Login
+    - echo "🔐 Logging into GitLab Container Registry..."
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
-    # Login to Azure
+
+    # Azure Login
+    - echo "🔐 Logging into Azure..."
     - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
+    - az account show
   script:
-    # Build Docker image
-    - docker build -t $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
+    # Docker Image bauen
+    - echo "🐳 Building Docker image..."
+    - docker build -t $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
+    - echo "✅ Docker image built successfully"
 
-    # Push Docker image to GitLab Container Registry
-    - docker push $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+    # Image in Registry pushen
+    - echo "📤 Pushing image to GitLab Container Registry..."
+    - docker push $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+    - echo "✅ Image pushed successfully"
 
-    # Create Azure Resource Group if it doesn't exist
+    # Azure Infrastruktur vorbereiten
+    - echo "☁️ Preparing Azure infrastructure..."
     - az group create --name $AZURE_RESOURCE_GROUP --location $AZURE_LOCATION || true
-
-    # Register Microsoft.ContainerInstance provider if not already registered
     - az provider register --namespace Microsoft.ContainerInstance || true
 
-    # Check if container exists and delete it if it does
+    # Warten auf Provider Registration
+    - |
+      echo "⏳ Waiting for Azure Container Instance provider registration..."
+      while [ "$(az provider show --namespace Microsoft.ContainerInstance --query registrationState -o tsv)" != "Registered" ]; do
+        echo "Still registering..."
+        sleep 10
+      done
+      echo "✅ Provider registered successfully"
+
+    # Alten Container löschen falls vorhanden
+    - echo "🧹 Cleaning up existing container..."
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
+    - sleep 15
 
-    # Deploy to Azure Container Instances
-    - >
-      az container create 
-      --resource-group $AZURE_RESOURCE_GROUP 
-      --name $AZURE_CONTAINER_NAME 
-      --image $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
-      --dns-name-label $AZURE_DNS_LABEL 
-      --ports 8080 
-      --registry-username $CI_REGISTRY_USER 
-      --registry-password $CI_REGISTRY_PASSWORD 
-      --os-type Linux 
-      --cpu 1 
-      --memory 1.5
+    # Neuen Container deployen
+    - echo "🚀 Deploying to Azure Container Instances..."
+    - |
+      az container create \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name $AZURE_CONTAINER_NAME \
+        --image $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG \
+        --dns-name-label $AZURE_DNS_LABEL \
+        --ports 8080 \
+        --registry-login-server $CI_REGISTRY \
+        --registry-username $CI_REGISTRY_USER \
+        --registry-password $CI_REGISTRY_PASSWORD \
+        --os-type Linux \
+        --cpu 1 \
+        --memory 1.5 \
+        --environment-variables PORT=8080 GIN_MODE=release \
+        --restart-policy OnFailure
 
-    # Display the FQDN of the deployed container
-    - az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn
+    # Deployment verifizieren
+    - echo "⏳ Waiting for container to start..."
+    - sleep 45
+
+    # Container Status prüfen
+    - echo "🔍 Checking container status..."
+    - az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query provisioningState -o tsv
+
+    # FQDN ermitteln
+    - FQDN=$(az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn -o tsv)
+    - echo "🌐 Container FQDN: $FQDN"
+
+    # API Tests durchführen
+    - echo "🧪 Testing deployed API..."
+
+    # Health Check
+    - echo "Testing health endpoint..."
+    - |
+      for i in {1..5}; do
+        if curl -f "http://$FQDN:8080/health"; then
+          echo "✅ Health check passed"
+          break
+        else
+          echo "❌ Health check attempt $i failed, retrying..."
+          sleep 10
+        fi
+      done
+
+    # API Endpoint Tests
+    - echo "Testing API endpoints..."
+    - curl -f "http://$FQDN:8080/" || echo "⚠️ Root endpoint check failed"
+    - curl -f "http://$FQDN:8080/items" || echo "⚠️ Items endpoint check failed"
+    - curl -f "http://$FQDN:8080/robot/robot1/status" || echo "⚠️ Robot status check failed"
+
+    # Funktionstest: Robot Movement
+    - |
+      echo "Testing robot movement..."
+      curl -f -X POST "http://$FQDN:8080/robot/robot1/move" \
+        -H "Content-Type: application/json" \
+        -d '{"direction": "up"}' || echo "⚠️ Robot movement test failed"
+
+    # Deployment Erfolg melden
+    - echo ""
+    - echo "🎉 Deployment successful!"
+    - echo "═══════════════════════════════════"
+    - echo "🌐 API Base URL: http://$FQDN:8080"
+    - echo "❤️ Health Check: http://$FQDN:8080/health"
+    - echo "🤖 Robot Status: http://$FQDN:8080/robot/robot1/status"
+    - echo "📦 Available Items: http://$FQDN:8080/items"
+    - echo "═══════════════════════════════════"
+
+  # Deployment Artifacts
+  artifacts:
+    reports:
+      dotenv: deploy.env
+    expire_in: 1 day
+
+  # Nur auf main/master Branch deployen
+  only:
+    - main
+    - master
+
+  # Manueller Trigger für Deployment
+  when: manual
+  allow_failure: false
+
+# Cleanup Job (optional, manuell)
+cleanup:
+  stage: deploy
+  image: alpine:latest
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+    - apk add --no-cache python3 py3-pip
+    - pip3 install azure-cli
+    - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
+  script:
+    - echo "🧹 Cleaning up Azure resources..."
+    - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
+    - echo "✅ Cleanup completed"
+  when: manual
   only:
     - main
     - master
