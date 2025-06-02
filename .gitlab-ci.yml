@@ -1,5 +1,4 @@
-# GitLab CI/CD Pipeline für Robot API - MKSS2 Aufgabe 3
-# HSB Bremen - Laborsubgruppe
+# GitLab CI/CD Pipeline for Robot API
 
 stages:
   - build
@@ -10,15 +9,15 @@ variables:
   GO_VERSION: "1.21"
   DOCKER_IMAGE_NAME: "robot-api"
   DOCKER_IMAGE_TAG: "latest"
-  # GitLab Container Registry für HSB
+  # GitLab Container Registry for HSB
   DOCKER_REGISTRY: "registry.gitlab.com/hsbremen/mkss2/sose-2025/labor"
-  # Azure Deployment Konfiguration
+  # Azure Deployment Configuration
   AZURE_RESOURCE_GROUP: "robotApiGroup"
   AZURE_LOCATION: "westeurope"
   AZURE_CONTAINER_NAME: "robot-api-container"
   AZURE_DNS_LABEL: "robot-api-${CI_PROJECT_NAME}"
 
-# BUILD STAGE: Go-Anwendung kompilieren
+# BUILD STAGE: Compile Go application
 build:
   stage: build
   image: golang:${GO_VERSION}-alpine
@@ -38,14 +37,14 @@ build:
       - robot-api
     expire_in: 1 hour
     reports:
-      # Für GitLab Reports
+      # For GitLab Reports
       junit: report.xml
   cache:
     key: go-mod-cache
     paths:
       - /go/pkg/mod/
 
-# TEST STAGE: Unit Tests ausführen
+# TEST STAGE: Execute unit tests
 test:
   stage: test
   image: golang:${GO_VERSION}-alpine
@@ -67,7 +66,7 @@ test:
       - /go/pkg/mod/
     policy: pull
 
-# DEPLOY STAGE: Docker Image erstellen und in Azure deployen
+# DEPLOY STAGE: Build Docker image and deploy to Azure
 deploy:
   stage: deploy
   image: docker:20.10.16
@@ -79,7 +78,7 @@ deploy:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
     - echo "🚀 Starting deployment process..."
-    # Azure CLI und Tools installieren
+    # Install Azure CLI and tools
     - apk add --no-cache python3 py3-pip bash curl wget jq
     - pip3 install --no-cache-dir azure-cli
 
@@ -92,22 +91,22 @@ deploy:
     - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
     - az account show
   script:
-    # Docker Image bauen
+    # Build Docker image
     - echo "🐳 Building Docker image..."
     - docker build -t $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
     - echo "✅ Docker image built successfully"
 
-    # Image in Registry pushen
+    # Push image to registry
     - echo "📤 Pushing image to GitLab Container Registry..."
     - docker push $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
     - echo "✅ Image pushed successfully"
 
-    # Azure Infrastruktur vorbereiten
+    # Prepare Azure infrastructure
     - echo "☁️ Preparing Azure infrastructure..."
     - az group create --name $AZURE_RESOURCE_GROUP --location $AZURE_LOCATION || true
     - az provider register --namespace Microsoft.ContainerInstance || true
 
-    # Warten auf Provider Registration
+    # Wait for provider registration
     - |
       echo "⏳ Waiting for Azure Container Instance provider registration..."
       while [ "$(az provider show --namespace Microsoft.ContainerInstance --query registrationState -o tsv)" != "Registered" ]; do
@@ -116,12 +115,12 @@ deploy:
       done
       echo "✅ Provider registered successfully"
 
-    # Alten Container löschen falls vorhanden
+    # Clean up existing container if present
     - echo "🧹 Cleaning up existing container..."
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
     - sleep 15
 
-    # Neuen Container deployen
+    # Deploy new container
     - echo "🚀 Deploying to Azure Container Instances..."
     - |
       az container create \
@@ -139,19 +138,20 @@ deploy:
         --environment-variables PORT=8080 GIN_MODE=release \
         --restart-policy OnFailure
 
-    # Deployment verifizieren
+    # Verify deployment
     - echo "⏳ Waiting for container to start..."
     - sleep 45
 
-    # Container Status prüfen
+    # Check container status
     - echo "🔍 Checking container status..."
     - az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query provisioningState -o tsv
 
-    # FQDN ermitteln
-    - FQDN=$(az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn -o tsv)
-    - echo "🌐 Container FQDN: $FQDN"
+    # Get FQDN
+    - |
+      FQDN=$(az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn -o tsv)
+      echo "🌐 Container FQDN: $FQDN"
 
-    # API Tests durchführen
+    # Perform API tests
     - echo "🧪 Testing deployed API..."
 
     # Health Check
@@ -173,21 +173,16 @@ deploy:
     - curl -f "http://$FQDN:8080/items" || echo "⚠️ Items endpoint check failed"
     - curl -f "http://$FQDN:8080/robot/robot1/status" || echo "⚠️ Robot status check failed"
 
-    # Funktionstest: Robot Movement
+    # Functional test: Robot Movement
     - |
       echo "Testing robot movement..."
       curl -f -X POST "http://$FQDN:8080/robot/robot1/move" \
         -H "Content-Type: application/json" \
         -d '{"direction": "up"}' || echo "⚠️ Robot movement test failed"
 
-    # Deployment Erfolg melden
+    # Report deployment success
     - echo ""
     - echo "🎉 Deployment successful!"
-    - echo "═══════════════════════════════════"
-    - echo "🌐 API Base URL: http://$FQDN:8080"
-    - echo "❤️ Health Check: http://$FQDN:8080/health"
-    - echo "🤖 Robot Status: http://$FQDN:8080/robot/robot1/status"
-    - echo "📦 Available Items: http://$FQDN:8080/items"
     - echo "═══════════════════════════════════"
 
   # Deployment Artifacts
@@ -196,16 +191,16 @@ deploy:
       dotenv: deploy.env
     expire_in: 1 day
 
-  # Nur auf main/master Branch deployen
+  # Only deploy on main/master branch
   only:
     - main
     - master
 
-  # Manueller Trigger für Deployment
+  # Manual trigger for deployment
   when: manual
   allow_failure: false
 
-# Cleanup Job (optional, manuell)
+# Cleanup Job (optional, manual)
 cleanup:
   stage: deploy
   image: alpine:latest
