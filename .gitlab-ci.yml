@@ -69,9 +69,9 @@ test:
 # DEPLOY STAGE: Build Docker image and deploy to Azure
 deploy:
   stage: deploy
-  image: docker:20.10.16
+  image: docker:24.0.5
   services:
-    - docker:20.10.16-dind
+    - docker:24.0.5-dind
   dependencies:
     - build
   variables:
@@ -79,7 +79,7 @@ deploy:
   before_script:
     - echo "🚀 Starting deployment process..."
     # Install build dependencies and Azure CLI with virtual environment
-    - apk add --no-cache python3 py3-pip bash curl wget jq gcc musl-dev python3-dev linux-headers py3-venv
+    - apk add --no-cache python3 py3-pip bash curl wget jq gcc musl-dev python3-dev linux-headers
     - python3 -m venv /tmp/azure-venv
     - source /tmp/azure-venv/bin/activate
     - pip install --upgrade pip
@@ -189,7 +189,6 @@ deploy:
     # Report deployment success
     - echo ""
     - echo "🎉 Deployment successful!"
-    - echo "═══════════════════════════════════"
 
   # Deployment Artifacts
   artifacts:
@@ -213,7 +212,7 @@ cleanup:
   variables:
     GIT_STRATEGY: none
   before_script:
-    - apk add --no-cache python3 py3-pip py3-venv gcc musl-dev python3-dev linux-headers
+    - apk add --no-cache python3 py3-pip gcc musl-dev python3-dev linux-headers
     - python3 -m venv /tmp/azure-venv
     - source /tmp/azure-venv/bin/activate
     - pip install --upgrade pip
