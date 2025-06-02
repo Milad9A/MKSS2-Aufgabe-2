@@ -91,6 +91,45 @@ The project includes automated deployment to Azure Container Instances via GitLa
 az ad sp create-for-rbac --name "robot-api-sp" --role contributor --scopes /subscriptions/YOUR_SUBSCRIPTION_ID
 ```
 
+### Local CI/CD Testing
+
+You can test the CI/CD pipeline locally using `gitlab-ci-local`:
+
+1. **Install gitlab-ci-local:**
+
+   ```bash
+   npm install -g gitlab-ci-local
+   ```
+
+2. **Create environment file:**
+   Create `.gitlab-ci-local.env` with your credentials:
+
+   ```bash
+   AZURE_SP_ID=your-service-principal-id
+   AZURE_SP_PASSWORD=your-service-principal-password
+   AZURE_TENANT_ID=your-tenant-id
+   CI_REGISTRY_PASSWORD=your-gitlab-personal-access-token
+   CI_REGISTRY_USER=your-gitlab-username
+   CI_REGISTRY=registry.gitlab.com
+   CI_PROJECT_PATH=hsbremen/mkss2/sose-2025/labor/robot-api-awad
+   CI_PROJECT_NAME=robot-api-awad
+   ```
+
+3. **Run pipeline locally:**
+
+   ```bash
+   # Run all stages
+   gitlab-ci-local
+
+   # Run specific job
+   gitlab-ci-local deploy
+
+   # Run with debug output
+   gitlab-ci-local --debug
+   ```
+
+**Note:** The `.gitlab-ci-local.env` file is ignored by git for security. Make sure to create your own with valid credentials.
+
 ### Manual Deployment
 
 1. **Build and push to GitLab Container Registry:**
