@@ -225,11 +225,8 @@ deploy:
     - main
     - master
 
-  # Manual trigger for deployment
-  when: manual
   allow_failure: false
 
-# Cleanup Job (optional, manual)
 cleanup:
   stage: deploy
   image: alpine:latest
@@ -247,7 +244,6 @@ cleanup:
     - echo "🧹 Cleaning up Azure resources..."
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
     - echo "✅ Cleanup completed"
-  when: manual
   only:
     - main
     - master
