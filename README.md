@@ -45,7 +45,7 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 **Default variables:**
 
 - `baseUrl`: `http://localhost:8080` (local development)
-- `cloudUrl`: `http://robot-api-Milad9A.westeurope.azurecontainer.io:8080` (cloud deployment)
+- `cloudUrl`: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080` (cloud deployment)
 - `robotId`: `robot1`
 - `itemId`: `item1`
 

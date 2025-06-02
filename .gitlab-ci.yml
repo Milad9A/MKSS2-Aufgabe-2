@@ -15,7 +15,7 @@ variables:
   AZURE_RESOURCE_GROUP: "robotApiGroup"
   AZURE_LOCATION: "westeurope"
   AZURE_CONTAINER_NAME: "robot-api-container"
-  AZURE_DNS_LABEL: "robot-api-${CI_PROJECT_NAME}"
+  AZURE_DNS_LABEL: "robot-api-milad9a"
 
 # BUILD STAGE: Compile Go application
 build:

@@ -12,7 +12,7 @@
         },
         {
             "key": "cloudUrl",
-            "value": "http://robot-api-Milad9A.westeurope.azurecontainer.io:8080",
+            "value": "http://robot-api-milad9a.westeurope.azurecontainer.io:8080",
             "type": "string"
         },
         {
