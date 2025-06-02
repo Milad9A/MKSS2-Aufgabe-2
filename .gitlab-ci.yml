@@ -76,8 +76,10 @@ deploy:
     - build
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_DRIVER: overlay2
   before_script:
     - echo "🚀 Starting deployment process..."
+
     # Install build dependencies and Azure CLI with virtual environment
     - apk add --no-cache python3 py3-pip bash curl wget jq gcc musl-dev python3-dev linux-headers
     - python3 -m venv /tmp/azure-venv
@@ -85,26 +87,48 @@ deploy:
     - pip install --upgrade pip
     - pip install azure-cli
 
-    # Docker Registry Login
+    # Docker Registry Login with better error handling
     - echo "🔐 Logging into GitLab Container Registry..."
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - |
+      if [ -z "$CI_REGISTRY_PASSWORD" ]; then
+        echo "❌ ERROR: CI_REGISTRY_PASSWORD is not set"
+        exit 1
+      fi
+
+      if [ -z "$CI_REGISTRY_USER" ]; then
+        echo "❌ ERROR: CI_REGISTRY_USER is not set"
+        exit 1
+      fi
+
+      echo "Attempting to login to $CI_REGISTRY as $CI_REGISTRY_USER"
+      echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY || {
+        echo "❌ Docker login failed. Checking if we can use project-level registry..."
+        # Try with project-specific path
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin registry.gitlab.com
+      }
 
     # Azure Login
     - echo "🔐 Logging into Azure..."
     - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
     - az account show
+
   script:
     # Activate virtual environment for script execution
     - source /tmp/azure-venv/bin/activate
 
+    # Use project path for better compatibility
+    - export FULL_IMAGE_NAME="$DOCKER_REGISTRY/$CI_PROJECT_PATH/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG"
+
     # Build Docker image
-    - echo "🐳 Building Docker image..."
-    - docker build -t $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
+    - docker build -t $FULL_IMAGE_NAME .
     - echo "✅ Docker image built successfully"
+
+    # List images for debugging
+    - docker images | grep robot-api || echo "No robot-api images found"
 
     # Push image to registry
     - echo "📤 Pushing image to GitLab Container Registry..."
-    - docker push $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG
+    - docker push $FULL_IMAGE_NAME
     - echo "✅ Image pushed successfully"
 
     # Prepare Azure infrastructure
@@ -115,11 +139,15 @@ deploy:
     # Wait for provider registration
     - |
       echo "⏳ Waiting for Azure Container Instance provider registration..."
-      while [ "$(az provider show --namespace Microsoft.ContainerInstance --query registrationState -o tsv)" != "Registered" ]; do
-        echo "Still registering..."
+      for i in {1..30}; do
+        STATUS=$(az provider show --namespace Microsoft.ContainerInstance --query registrationState -o tsv)
+        echo "Registration status: $STATUS (attempt $i/30)"
+        if [ "$STATUS" = "Registered" ]; then
+          echo "✅ Provider registered successfully"
+          break
+        fi
         sleep 10
       done
-      echo "✅ Provider registered successfully"
 
     # Clean up existing container if present
     - echo "🧹 Cleaning up existing container..."
@@ -132,7 +160,7 @@ deploy:
       az container create \
         --resource-group $AZURE_RESOURCE_GROUP \
         --name $AZURE_CONTAINER_NAME \
-        --image $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG \
+        --image $FULL_IMAGE_NAME \
         --dns-name-label $AZURE_DNS_LABEL \
         --ports 8080 \
         --registry-login-server $CI_REGISTRY \
@@ -160,41 +188,37 @@ deploy:
     # Perform API tests
     - echo "🧪 Testing deployed API..."
 
-    # Health Check
+    # Health Check with retry
     - echo "Testing health endpoint..."
     - |
-      for i in {1..5}; do
-        if curl -f "http://$FQDN:8080/health"; then
+      for i in {1..10}; do
+        echo "Health check attempt $i/10..."
+        if curl -f --connect-timeout 10 --max-time 30 "http://$FQDN:8080/health"; then
           echo "✅ Health check passed"
           break
         else
-          echo "❌ Health check attempt $i failed, retrying..."
-          sleep 10
+          echo "❌ Health check attempt $i failed, retrying in 15 seconds..."
+          sleep 15
         fi
       done
 
     # API Endpoint Tests
     - echo "Testing API endpoints..."
-    - curl -f "http://$FQDN:8080/" || echo "⚠️ Root endpoint check failed"
-    - curl -f "http://$FQDN:8080/items" || echo "⚠️ Items endpoint check failed"
-    - curl -f "http://$FQDN:8080/robot/robot1/status" || echo "⚠️ Robot status check failed"
+    - curl -f --max-time 10 "http://$FQDN:8080/" || echo "⚠️ Root endpoint check failed"
+    - curl -f --max-time 10 "http://$FQDN:8080/items" || echo "⚠️ Items endpoint check failed"
+    - curl -f --max-time 10 "http://$FQDN:8080/robot/robot1/status" || echo "⚠️ Robot status check failed"
 
     # Functional test: Robot Movement
     - |
       echo "Testing robot movement..."
-      curl -f -X POST "http://$FQDN:8080/robot/robot1/move" \
+      curl -f --max-time 10 -X POST "http://$FQDN:8080/robot/robot1/move" \
         -H "Content-Type: application/json" \
         -d '{"direction": "up"}' || echo "⚠️ Robot movement test failed"
 
     # Report deployment success
     - echo ""
     - echo "🎉 Deployment successful!"
-
-  # Deployment Artifacts
-  artifacts:
-    reports:
-      dotenv: deploy.env
-    expire_in: 1 day
+    - echo "═══════════════════════════════════"
 
   # Only deploy on main/master branch
   only:
