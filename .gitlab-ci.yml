@@ -78,9 +78,12 @@ deploy:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
     - echo "🚀 Starting deployment process..."
-    # Install Azure CLI and tools
-    - apk add --no-cache python3 py3-pip bash curl wget jq
-    - pip3 install --no-cache-dir azure-cli
+    # Install build dependencies and Azure CLI with virtual environment
+    - apk add --no-cache python3 py3-pip bash curl wget jq gcc musl-dev python3-dev linux-headers py3-venv
+    - python3 -m venv /tmp/azure-venv
+    - source /tmp/azure-venv/bin/activate
+    - pip install --upgrade pip
+    - pip install azure-cli
 
     # Docker Registry Login
     - echo "🔐 Logging into GitLab Container Registry..."
@@ -91,6 +94,9 @@ deploy:
     - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
     - az account show
   script:
+    # Activate virtual environment for script execution
+    - source /tmp/azure-venv/bin/activate
+
     # Build Docker image
     - echo "🐳 Building Docker image..."
     - docker build -t $DOCKER_REGISTRY/$CI_PROJECT_NAME/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG .
@@ -207,10 +213,14 @@ cleanup:
   variables:
     GIT_STRATEGY: none
   before_script:
-    - apk add --no-cache python3 py3-pip
-    - pip3 install azure-cli
+    - apk add --no-cache python3 py3-pip py3-venv gcc musl-dev python3-dev linux-headers
+    - python3 -m venv /tmp/azure-venv
+    - source /tmp/azure-venv/bin/activate
+    - pip install --upgrade pip
+    - pip install azure-cli
     - az login --service-principal -u "$AZURE_SP_ID" -p "$AZURE_SP_PASSWORD" --tenant "$AZURE_TENANT_ID"
   script:
+    - source /tmp/azure-venv/bin/activate
     - echo "🧹 Cleaning up Azure resources..."
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
     - echo "✅ Cleanup completed"
