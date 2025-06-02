@@ -36,9 +36,6 @@ build:
     paths:
       - robot-api
     expire_in: 1 hour
-    reports:
-      # For GitLab Reports
-      junit: report.xml
   cache:
     key: go-mod-cache
     paths:
@@ -80,6 +77,15 @@ deploy:
   before_script:
     - echo "🚀 Starting deployment process..."
 
+    # Load local environment for gitlab-ci-local testing
+    - |
+      if [ -f ".gitlab-ci-local.env" ]; then
+        echo "📄 Loading local environment variables for testing..."
+        set -a  # automatically export all variables
+        source .gitlab-ci-local.env
+        set +a
+      fi
+
     # Install build dependencies and Azure CLI with virtual environment
     - apk add --no-cache python3 py3-pip bash curl wget jq gcc musl-dev python3-dev linux-headers
     - python3 -m venv /tmp/azure-venv
@@ -87,25 +93,41 @@ deploy:
     - pip install --upgrade pip
     - pip install azure-cli
 
-    # Docker Registry Login with better error handling
-    - echo "🔐 Logging into GitLab Container Registry..."
+    # Set up registry authentication - Use GitLab CI variables when available
     - |
-      if [ -z "$CI_REGISTRY_PASSWORD" ]; then
-        echo "❌ ERROR: CI_REGISTRY_PASSWORD is not set"
+      if [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "🔐 Using GitLab CI built-in registry credentials"
+        REGISTRY_USER="$CI_REGISTRY_USER"
+        REGISTRY_PASSWORD="$CI_REGISTRY_PASSWORD"
+        REGISTRY_URL="$CI_REGISTRY"
+      else
+        echo "🔐 Using custom registry credentials from environment"
+        # For local testing, these should be loaded from .gitlab-ci-local.env
+        if [ -z "$CI_REGISTRY_USER" ] || [ -z "$CI_REGISTRY_PASSWORD" ]; then
+          echo "❌ ERROR: GitLab registry credentials not set"
+          echo "For GitLab CI: These are set automatically"
+          echo "For local testing: Update your Personal Access Token in .gitlab-ci-local.env"
+          echo "Token needs 'read_registry' and 'write_registry' scopes"
+          exit 1
+        fi
+        REGISTRY_USER="$CI_REGISTRY_USER" 
+        REGISTRY_PASSWORD="$CI_REGISTRY_PASSWORD"
+        REGISTRY_URL="${CI_REGISTRY:-registry.gitlab.com}"
+      fi
+
+    # Validate Azure credentials
+    - |
+      if [ -z "$AZURE_SP_ID" ] || [ -z "$AZURE_SP_PASSWORD" ] || [ -z "$AZURE_TENANT_ID" ]; then
+        echo "❌ ERROR: Azure credentials not set"
+        echo "Required: AZURE_SP_ID, AZURE_SP_PASSWORD, AZURE_TENANT_ID"
+        echo "For GitLab CI: Set as protected variables in project settings"
+        echo "For local testing: Ensure they are set in .gitlab-ci-local.env"
         exit 1
       fi
 
-      if [ -z "$CI_REGISTRY_USER" ]; then
-        echo "❌ ERROR: CI_REGISTRY_USER is not set"
-        exit 1
-      fi
-
-      echo "Attempting to login to $CI_REGISTRY as $CI_REGISTRY_USER"
-      echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY || {
-        echo "❌ Docker login failed. Checking if we can use project-level registry..."
-        # Try with project-specific path
-        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin registry.gitlab.com
-      }
+    # Docker Registry Login
+    - echo "🔐 Logging into GitLab Container Registry..."
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin "$REGISTRY_URL"
 
     # Azure Login
     - echo "🔐 Logging into Azure..."
@@ -116,10 +138,20 @@ deploy:
     # Activate virtual environment for script execution
     - source /tmp/azure-venv/bin/activate
 
-    # Use project path for better compatibility
-    - export FULL_IMAGE_NAME="$DOCKER_REGISTRY/$CI_PROJECT_PATH/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG"
+    # Set up image name - Use actual CI variables when available
+    - |
+      if [ -n "$CI_PROJECT_PATH" ]; then
+        PROJECT_PATH="$CI_PROJECT_PATH"
+      else
+        PROJECT_PATH="hsbremen/mkss2/sose-2025/labor/robot-api-awad"
+        echo "🔧 Using fallback project path: $PROJECT_PATH"
+      fi
+
+      REGISTRY_URL="${CI_REGISTRY:-registry.gitlab.com}"
+      export FULL_IMAGE_NAME="$REGISTRY_URL/$PROJECT_PATH/$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG"
 
     # Build Docker image
+    - echo "🐳 Building Docker image..."
     - docker build -t $FULL_IMAGE_NAME .
     - echo "✅ Docker image built successfully"
 
@@ -163,9 +195,9 @@ deploy:
         --image $FULL_IMAGE_NAME \
         --dns-name-label $AZURE_DNS_LABEL \
         --ports 8080 \
-        --registry-login-server $CI_REGISTRY \
-        --registry-username $CI_REGISTRY_USER \
-        --registry-password $CI_REGISTRY_PASSWORD \
+        --registry-login-server $REGISTRY_URL \
+        --registry-username $REGISTRY_USER \
+        --registry-password $REGISTRY_PASSWORD \
         --os-type Linux \
         --cpu 1 \
         --memory 1.5 \
@@ -225,14 +257,32 @@ deploy:
     - main
     - master
 
-  allow_failure: false
-
+# Cleanup Job (runs when needed)
 cleanup:
   stage: deploy
   image: alpine:latest
   variables:
     GIT_STRATEGY: none
   before_script:
+    # Load local environment for gitlab-ci-local testing
+    - |
+      if [ -f ".gitlab-ci-local.env" ]; then
+        echo "📄 Loading local environment variables for testing..."
+        set -a  # automatically export all variables
+        source .gitlab-ci-local.env
+        set +a
+      fi
+
+    # Validate environment variables first
+    - |
+      if [ -z "$AZURE_SP_ID" ] || [ -z "$AZURE_SP_PASSWORD" ] || [ -z "$AZURE_TENANT_ID" ]; then
+        echo "❌ ERROR: Azure credentials not set"
+        echo "Required: AZURE_SP_ID, AZURE_SP_PASSWORD, AZURE_TENANT_ID"
+        echo "For GitLab CI: Set as protected variables in project settings"
+        echo "For local testing: Ensure they are set in .gitlab-ci-local.env"
+        exit 1
+      fi
+
     - apk add --no-cache python3 py3-pip gcc musl-dev python3-dev linux-headers
     - python3 -m venv /tmp/azure-venv
     - source /tmp/azure-venv/bin/activate
@@ -244,6 +294,7 @@ cleanup:
     - echo "🧹 Cleaning up Azure resources..."
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
     - echo "✅ Cleanup completed"
+  when: manual
   only:
     - main
     - master
