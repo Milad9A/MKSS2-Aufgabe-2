@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,6 +20,16 @@ func main() {
 	}
 
 	router := gin.Default()
+
+	// Configure CORS middleware
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},                                       // Allow all origins
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE"},   // Allowed methods
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"}, // Allowed headers
+		ExposeHeaders:    []string{"Content-Length"},                          // Exposed headers
+		AllowCredentials: true,                                                // Allow cookies
+		MaxAge:           12 * time.Hour,                                      // Preflight request cache duration
+	}))
 
 	// Add enhanced health check endpoint
 	router.GET("/health", func(c *gin.Context) {
