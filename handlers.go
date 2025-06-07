@@ -28,21 +28,26 @@ func (h *RobotHandler) GetStatus(c *gin.Context) {
 		return
 	}
 
-	// Create HATEOAS links
+	// Create HATEOAS links with proper scheme detection
 	baseURL := c.Request.Host
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
+	scheme := c.GetString("scheme") // ← NEW: Get scheme from middleware
+	if scheme == "" {
+		// Fallback scheme detection
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
 	}
 
 	links := []Link{
 		{
 			Rel:  "self",
-			Href: fmt.Sprintf("%s://%s/robot/%s/status", scheme, baseURL, id),
+			Href: fmt.Sprintf("%s://%s/robot/%s/status", scheme, baseURL, id), // ← CHANGED: Use detected scheme
 		},
 		{
 			Rel:  "actions",
-			Href: fmt.Sprintf("%s://%s/robot/%s/actions?page=1&size=5", scheme, baseURL, id),
+			Href: fmt.Sprintf("%s://%s/robot/%s/actions?page=1&size=5", scheme, baseURL, id), // ← CHANGED: Use detected scheme
 		},
 	}
 
@@ -235,7 +240,16 @@ func (h *RobotHandler) GetActions(c *gin.Context) {
 		endIndex = totalElements
 	}
 
-	// Create paginated actions slice
+	// Create paginated actions slice with proper scheme
+	scheme := c.GetString("scheme")
+	if scheme == "" {
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+
 	var paginatedActions []ActionWithLinks
 	for i := startIndex; i < endIndex; i++ {
 		action := robot.Actions[i]
@@ -244,7 +258,7 @@ func (h *RobotHandler) GetActions(c *gin.Context) {
 			Links: []Link{
 				{
 					Rel:  "self",
-					Href: fmt.Sprintf("http://%s/robot/%s/actions/%d", c.Request.Host, id, i+1),
+					Href: fmt.Sprintf("%s://%s/robot/%s/actions/%d", scheme, c.Request.Host, id, i+1),
 				},
 			},
 		}
@@ -261,19 +275,19 @@ func (h *RobotHandler) GetActions(c *gin.Context) {
 		HasPrevious:   page > 1,
 	}
 
-	// Create navigation links
+	// Create navigation links with proper scheme
 	var links []Link
 	if pageInfo.HasNext {
 		links = append(links, Link{
 			Rel:  "next",
-			Href: fmt.Sprintf("/robot/%s/actions?page=%d&size=%d", id, page+1, size),
+			Href: fmt.Sprintf("%s://%s/robot/%s/actions?page=%d&size=%d", scheme, c.Request.Host, id, page+1, size),
 		})
 	}
 
 	if pageInfo.HasPrevious {
 		links = append(links, Link{
 			Rel:  "previous",
-			Href: fmt.Sprintf("/robot/%s/actions?page=%d&size=%d", id, page-1, size),
+			Href: fmt.Sprintf("%s://%s/robot/%s/actions?page=%d&size=%d", scheme, c.Request.Host, id, page-1, size),
 		})
 	}
 

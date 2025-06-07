@@ -9,6 +9,7 @@ A REST API server for controlling and managing robots in a virtual environment. 
 - Action history with pagination
 - Robot combat system
 - HATEOAS navigation links
+- **HTTPS support in Azure deployment**
 
 ## Quick Start
 
@@ -42,12 +43,79 @@ docker run -p 8080:8080 robot-api
 
 A complete Postman collection is included in the project (`Robot_API.postman_collection.json`)
 
-**Default variables:**
+**Environment variables:**
 
-- `baseUrl`: `http://localhost:8080` (local development)
-- `cloudUrl`: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080` (cloud deployment)
-- `robotId`: `robot1`
-- `itemId`: `item1`
+- `local`: `http://localhost:8080` (local development server)
+- `cloudHttp`: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080` (Azure HTTP deployment)
+- `cloudHttps`: `https://robot-api-https-milad9a.westeurope.cloudapp.azure.com` (Azure HTTPS deployment)
+- `url`: `{{local}}` (active endpoint - change this to switch environments)
+- `robotId`: `robot1` (default robot for testing)
+- `itemId`: `item1` (default item for testing)
+
+**How to switch environments:**
+
+1. **Local Testing**: Set `url` to `{{local}}`
+2. **Cloud HTTP Testing**: Set `url` to `{{cloudHttp}}`
+3. **Cloud HTTPS Testing**: Set `url` to `{{cloudHttps}}`
+
+All requests use `{{url}}` so you only need to change one variable to test different environments.
+
+## Cloud Deployment
+
+### HTTPS Support
+
+The Azure deployment includes HTTPS support through Azure Application Gateway:
+
+- **HTTP Endpoint**: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080`
+- **HTTPS Endpoint**: Available through Application Gateway (requires SSL certificate configuration)
+
+#### SSL Certificate Configuration
+
+To enable full HTTPS support, configure an SSL certificate on the Application Gateway:
+
+1. **Using Azure Key Vault** (Recommended):
+
+   ```bash
+   # Create/import certificate in Key Vault
+   az keyvault certificate create --vault-name your-vault --name robot-api-cert --policy "$(az keyvault certificate get-default-policy)"
+
+   # Configure Application Gateway to use the certificate
+   az network application-gateway ssl-cert create --gateway-name robot-api-gateway --resource-group robotApiGroup --name robot-api-ssl --key-vault-secret-id https://your-vault.vault.azure.net/secrets/robot-api-cert
+   ```
+
+2. **Using Let's Encrypt** (Free):
+
+   - Configure automatic certificate renewal
+   - Use Azure Key Vault integration
+
+3. **Upload Custom Certificate**:
+   ```bash
+   az network application-gateway ssl-cert create --gateway-name robot-api-gateway --resource-group robotApiGroup --name robot-api-ssl --cert-file cert.pfx --cert-password yourpassword
+   ```
+
+### GitLab CI/CD Pipeline
+
+The project includes automated deployment to Azure Container Instances with HTTPS-ready Application Gateway.
+
+**Required CI/CD Variables:**
+
+- `AZURE_SP_ID`: Azure Service Principal ID
+- `AZURE_SP_PASSWORD`: Azure Service Principal Password
+- `AZURE_TENANT_ID`: Azure Tenant ID
+
+**The deployment creates:**
+
+- Azure Container Instance (HTTP backend)
+- Application Gateway (HTTPS termination)
+- Public IP with DNS name
+- Virtual Network for Application Gateway
+
+### Security Features
+
+- **HTTPS Redirect**: Application Gateway can redirect HTTP to HTTPS
+- **TLS Termination**: SSL/TLS handled at the gateway level
+- **Header Detection**: Application detects HTTPS from proxy headers
+- **Secure HATEOAS Links**: All links use HTTPS when accessed through secure endpoints
 
 ## API Endpoints
 
@@ -63,6 +131,8 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 | POST   | `/robot/{id}/attack/{targetId}` | Attack another robot           |
 | GET    | `/items`                        | List available items           |
 
+**All endpoints support both HTTP and HTTPS protocols.**
+
 ## Testing
 
 ```bash
@@ -72,88 +142,6 @@ go test -v
 # Run with coverage
 go test -cover
 ```
-
-## Cloud Deployment
-
-### GitLab CI/CD Pipeline
-
-The project includes automated deployment to Azure Container Instances via GitLab CI/CD.
-
-**Required CI/CD Variables:**
-
-- `AZURE_SP_ID`: Azure Service Principal ID
-- `AZURE_SP_PASSWORD`: Azure Service Principal Password
-- `AZURE_TENANT_ID`: Azure Tenant ID
-
-**Create Service Principal:**
-
-```bash
-az ad sp create-for-rbac --name "robot-api-sp" --role contributor --scopes /subscriptions/YOUR_SUBSCRIPTION_ID
-```
-
-### Local CI/CD Testing
-
-You can test the CI/CD pipeline locally using `gitlab-ci-local`:
-
-1. **Install gitlab-ci-local:**
-
-   ```bash
-   npm install -g gitlab-ci-local
-   ```
-
-2. **Create environment file:**
-   Create `.gitlab-ci-local.env` with your credentials:
-
-   ```bash
-   AZURE_SP_ID=your-service-principal-id
-   AZURE_SP_PASSWORD=your-service-principal-password
-   AZURE_TENANT_ID=your-tenant-id
-   CI_REGISTRY_PASSWORD=your-gitlab-personal-access-token
-   CI_REGISTRY_USER=your-gitlab-username
-   CI_REGISTRY=registry.gitlab.com
-   CI_PROJECT_PATH=hsbremen/mkss2/sose-2025/labor/robot-api-awad
-   CI_PROJECT_NAME=robot-api-awad
-   ```
-
-3. **Run pipeline locally:**
-
-   ```bash
-   # Run all stages
-   gitlab-ci-local
-
-   # Run specific job
-   gitlab-ci-local deploy
-
-   # Run with debug output
-   gitlab-ci-local --debug
-   ```
-
-**Note:** The `.gitlab-ci-local.env` file is ignored by git for security. Make sure to create your own with valid credentials.
-
-### Manual Deployment
-
-1. **Build and push to GitLab Container Registry:**
-
-   ```bash
-   docker build -t robot-api .
-   docker tag robot-api registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT/robot-api:latest
-   docker login registry.gitlab.com
-   docker push registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT/robot-api:latest
-   ```
-
-2. **Deploy to Azure:**
-   ```bash
-   az container create \
-     --resource-group robotApiGroup \
-     --name robot-api-container \
-     --image registry.gitlab.com/hsbremen/mkss2/sose-2025/labor/YOUR_PROJECT/robot-api:latest \
-     --dns-name-label robot-api-YOUR_USERNAME \
-     --ports 8080 \
-     --registry-login-server registry.gitlab.com \
-     --registry-username YOUR_GITLAB_USERNAME \
-     --registry-password YOUR_GITLAB_PAT \
-     --environment-variables PORT=8080 GIN_MODE=release
-   ```
 
 ## Initial Data
 

@@ -21,6 +21,21 @@ func main() {
 
 	router := gin.Default()
 
+	// Add middleware to detect HTTPS from headers (for proxy/load balancer scenarios)
+	router.Use(func(c *gin.Context) {
+		// Check for common HTTPS detection headers
+		if c.GetHeader("X-Forwarded-Proto") == "https" ||
+			c.GetHeader("X-Forwarded-SSL") == "on" ||
+			c.GetHeader("X-URL-Scheme") == "https" {
+			c.Set("scheme", "https")
+		} else if c.Request.TLS != nil {
+			c.Set("scheme", "https")
+		} else {
+			c.Set("scheme", "http")
+		}
+		c.Next()
+	})
+
 	// Configure CORS middleware
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},                                       // Allow all origins
@@ -43,9 +58,16 @@ func main() {
 
 	// Add a simple root endpoint for basic connectivity test
 	router.GET("/", func(c *gin.Context) {
+		scheme := c.GetString("scheme")
+		if scheme == "" {
+			scheme = "http"
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Robot API Server is running",
-			"version": "1.0.0",
+			"message":       "Robot API Server is running",
+			"version":       "1.0.0",
+			"scheme":        scheme,
+			"https_enabled": scheme == "https",
 			"endpoints": []string{
 				"/health",
 				"/robot/{id}/status",

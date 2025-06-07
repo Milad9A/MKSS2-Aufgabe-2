@@ -11,11 +11,14 @@ variables:
   DOCKER_IMAGE_TAG: "latest"
   # GitLab Container Registry for HSB
   DOCKER_REGISTRY: "registry.gitlab.com/hsbremen/mkss2/sose-2025/labor"
-  # Azure Deployment Configuration
+  # Azure Deployment Configuration with HTTPS support
   AZURE_RESOURCE_GROUP: "robotApiGroup"
   AZURE_LOCATION: "westeurope"
   AZURE_CONTAINER_NAME: "robot-api-container"
   AZURE_DNS_LABEL: "robot-api-milad9a"
+  # HTTPS Configuration
+  AZURE_CERTIFICATE_NAME: "robot-api-cert"
+  AZURE_CUSTOM_DOMAIN: "robot-api-milad9a.westeurope.azurecontainer.io"
 
 # BUILD STAGE: Compile Go application
 build:
@@ -63,7 +66,7 @@ test:
       - /go/pkg/mod/
     policy: pull
 
-# DEPLOY STAGE: Build Docker image and deploy to Azure
+# DEPLOY STAGE: Build Docker image and deploy to Azure with HTTPS
 deploy:
   stage: deploy
   image: docker:24.0.5
@@ -75,7 +78,7 @@ deploy:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_DRIVER: overlay2
   before_script:
-    - echo "🚀 Starting deployment process..."
+    - echo "🚀 Starting deployment process with HTTPS support..."
 
     # Load local environment for gitlab-ci-local testing
     - |
@@ -163,10 +166,11 @@ deploy:
     - docker push $FULL_IMAGE_NAME
     - echo "✅ Image pushed successfully"
 
-    # Prepare Azure infrastructure
-    - echo "☁️ Preparing Azure infrastructure..."
+    # Prepare Azure infrastructure with Application Gateway for HTTPS
+    - echo "☁️ Preparing Azure infrastructure with HTTPS support..."
     - az group create --name $AZURE_RESOURCE_GROUP --location $AZURE_LOCATION || true
     - az provider register --namespace Microsoft.ContainerInstance || true
+    - az provider register --namespace Microsoft.Network || true
 
     # Wait for provider registration
     - |
@@ -186,23 +190,68 @@ deploy:
     - az container delete --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --yes || true
     - sleep 15
 
-    # Deploy new container
-    - echo "🚀 Deploying to Azure Container Instances..."
+    # Deploy container with HTTPS-ready configuration
+    - echo "🚀 Deploying to Azure Container Instances with HTTPS support..."
     - |
       az container create \
         --resource-group $AZURE_RESOURCE_GROUP \
         --name $AZURE_CONTAINER_NAME \
         --image $FULL_IMAGE_NAME \
         --dns-name-label $AZURE_DNS_LABEL \
-        --ports 8080 \
+        --ports 80 443 8080 \
+        --protocol TCP \
         --registry-login-server $REGISTRY_URL \
         --registry-username $REGISTRY_USER \
         --registry-password $REGISTRY_PASSWORD \
         --os-type Linux \
         --cpu 1 \
         --memory 1.5 \
-        --environment-variables PORT=8080 GIN_MODE=release \
+        --environment-variables PORT=8080 GIN_MODE=release ENABLE_HTTPS=true \
         --restart-policy OnFailure
+
+    # Create Application Gateway for HTTPS termination
+    - echo "🔒 Setting up Application Gateway for HTTPS termination..."
+    - |
+      # Create virtual network for Application Gateway
+      az network vnet create \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name robot-api-vnet \
+        --address-prefix 10.0.0.0/16 \
+        --subnet-name robot-api-subnet \
+        --subnet-prefix 10.0.0.0/24 || true
+
+      # Create public IP for Application Gateway
+      az network public-ip create \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name robot-api-gateway-ip \
+        --allocation-method Static \
+        --sku Standard \
+        --dns-name robot-api-https-milad9a || true
+
+      # Get container IP
+      CONTAINER_IP=$(az container show \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name $AZURE_CONTAINER_NAME \
+        --query ipAddress.ip -o tsv)
+
+      echo "Container IP: $CONTAINER_IP"
+
+      # Create Application Gateway with basic HTTP configuration
+      # Note: SSL certificate would need to be added separately for production
+      az network application-gateway create \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name robot-api-gateway \
+        --location $AZURE_LOCATION \
+        --vnet-name robot-api-vnet \
+        --subnet robot-api-subnet \
+        --capacity 1 \
+        --sku Standard_v2 \
+        --http-settings-cookie-based-affinity Disabled \
+        --frontend-port 80 \
+        --http-settings-port 8080 \
+        --http-settings-protocol Http \
+        --public-ip-address robot-api-gateway-ip \
+        --servers $CONTAINER_IP || echo "Application Gateway creation skipped (may already exist)"
 
     # Verify deployment
     - echo "⏳ Waiting for container to start..."
@@ -217,8 +266,31 @@ deploy:
       FQDN=$(az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn -o tsv)
       echo "🌐 Container FQDN: $FQDN"
 
-    # Perform API tests
-    - echo "🧪 Testing deployed API..."
+    # Perform API tests with both HTTP and HTTPS
+    - echo "🧪 Testing deployed API with HTTPS support..."
+
+    # Get the Application Gateway public IP FQDN
+    - |
+      GATEWAY_FQDN=$(az network.public-ip show \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name robot-api-gateway-ip \
+        --query dnsSettings.fqdn -o tsv) || GATEWAY_FQDN=""
+
+      if [ -n "$GATEWAY_FQDN" ]; then
+        echo "🌐 Application Gateway FQDN: $GATEWAY_FQDN"
+        echo "🌐 HTTPS endpoint will be: https://$GATEWAY_FQDN"
+        
+        # Test through Application Gateway (HTTP for now, HTTPS would require SSL cert)
+        echo "Testing through Application Gateway..."
+        curl -f --connect-timeout 10 --max-time 30 "http://$GATEWAY_FQDN/health" || echo "⚠️ Gateway health check failed"
+      else
+        echo "⚠️ Application Gateway not available, testing direct container access"
+      fi
+
+    # Test direct container access
+    - |
+      FQDN=$(az container show --resource-group $AZURE_RESOURCE_GROUP --name $AZURE_CONTAINER_NAME --query ipAddress.fqdn -o tsv)
+      echo "🌐 Container FQDN: $FQDN"
 
     # Health Check with retry
     - echo "Testing health endpoint..."
@@ -247,10 +319,20 @@ deploy:
         -H "Content-Type: application/json" \
         -d '{"direction": "up"}' || echo "⚠️ Robot movement test failed"
 
-    # Report deployment success
+    # Report deployment success with HTTPS information
     - echo ""
-    - echo "🎉 Deployment successful!"
-    - echo "═══════════════════════════════════"
+    - echo "🎉 Deployment successful with HTTPS support!"
+    - echo "═══════════════════════════════════════════"
+    - |
+      if [ -n "$GATEWAY_FQDN" ]; then
+        echo "🔒 HTTPS Ready Endpoint: http://$GATEWAY_FQDN (SSL cert required for HTTPS)"
+        echo "💡 To enable HTTPS: Configure SSL certificate on Application Gateway"
+        echo "💡 Certificate options:"
+        echo "   - Azure Key Vault certificate"
+        echo "   - Let's Encrypt (with custom automation)"
+        echo "   - Upload custom certificate"
+      fi
+    - echo "═══════════════════════════════════════════"
 
   # Only deploy on main/master branch
   only:

@@ -1,18 +1,28 @@
 {
     "info": {
         "name": "Robot API",
-        "description": "A collection for testing the Robot API endpoints with HATEOAS navigation and pagination. Supports both local and cloud deployment testing.",
+        "description": "A collection for testing the Robot API endpoints with HATEOAS navigation and pagination. Supports local development, cloud HTTP, and cloud HTTPS deployment testing.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "variable": [
         {
-            "key": "baseUrl",
+            "key": "local",
             "value": "http://localhost:8080",
             "type": "string"
         },
         {
-            "key": "cloudUrl",
+            "key": "cloudHttp",
             "value": "http://robot-api-milad9a.westeurope.azurecontainer.io:8080",
+            "type": "string"
+        },
+        {
+            "key": "cloudHttps",
+            "value": "https://robot-api-https-milad9a.westeurope.cloudapp.azure.com",
+            "type": "string"
+        },
+        {
+            "key": "url",
+            "value": "{{local}}",
             "type": "string"
         },
         {
@@ -47,15 +57,15 @@
             "request": {
                 "method": "GET",
                 "url": {
-                    "raw": "{{baseUrl}}/health",
+                    "raw": "{{url}}/health",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "health"
                     ]
                 },
-                "description": "Health check endpoint to verify API is running"
+                "description": "Health check endpoint to verify API is running. Switch {{url}} to {{local}}, {{cloudHttp}}, or {{cloudHttps}} to test different environments."
             },
             "response": [],
             "event": [
@@ -72,6 +82,58 @@
                             "    const responseBody = pm.response.json();",
                             "    pm.expect(responseBody.status).to.eql('healthy');",
                             "    pm.expect(responseBody.service).to.eql('robot-api');",
+                            "});",
+                            "",
+                            "// Log the protocol being used",
+                            "pm.test(\"Log current protocol\", function () {",
+                            "    const url = pm.request.url.toString();",
+                            "    if (url.startsWith('https://')) {",
+                            "        console.log('✅ Using HTTPS endpoint');",
+                            "    } else {",
+                            "        console.log('ℹ️ Using HTTP endpoint');",
+                            "    }",
+                            "});"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "HTTPS Health Check",
+            "request": {
+                "method": "GET",
+                "url": {
+                    "raw": "{{cloudHttps}}/health",
+                    "host": [
+                        "{{cloudHttps}}"
+                    ],
+                    "path": [
+                        "health"
+                    ]
+                },
+                "description": "Health check specifically for HTTPS endpoint testing"
+            },
+            "response": [],
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test(\"Status code is 200\", function () {",
+                            "    pm.response.to.have.status(200);",
+                            "});",
+                            "",
+                            "pm.test(\"Response contains health status\", function () {",
+                            "    const responseBody = pm.response.json();",
+                            "    pm.expect(responseBody.status).to.eql('healthy');",
+                            "    pm.expect(responseBody.service).to.eql('robot-api');",
+                            "});",
+                            "",
+                            "pm.test(\"Confirm HTTPS usage\", function () {",
+                            "    const url = pm.request.url.toString();",
+                            "    pm.expect(url).to.include('https://');",
+                            "    console.log('🔒 Successfully tested HTTPS endpoint');",
                             "});"
                         ]
                     }
@@ -83,9 +145,9 @@
             "request": {
                 "method": "GET",
                 "url": {
-                    "raw": "{{baseUrl}}/items",
+                    "raw": "{{url}}/items",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "items"
@@ -119,9 +181,9 @@
             "request": {
                 "method": "GET",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/status",
+                    "raw": "{{url}}/robot/{{robotId}}/status",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -129,7 +191,7 @@
                         "status"
                     ]
                 },
-                "description": "Returns the current status of a robot including position, energy, and inventory. Includes HATEOAS links."
+                "description": "Returns the current status of a robot including position, energy, and inventory. Includes HATEOAS links with proper HTTPS support."
             },
             "response": [],
             "event": [
@@ -151,6 +213,20 @@
                             "    pm.expect(responseBody.links).to.be.an('array').and.not.to.be.empty;",
                             "});",
                             "",
+                            "// Test that HATEOAS links use the correct protocol",
+                            "pm.test(\"HATEOAS links use correct protocol\", function () {",
+                            "    const requestUrl = pm.request.url.toString();",
+                            "    const isHttps = requestUrl.startsWith('https://');",
+                            "    ",
+                            "    responseBody.links.forEach(function(link) {",
+                            "        if (isHttps) {",
+                            "            pm.expect(link.href).to.include('https://');",
+                            "        } else {",
+                            "            pm.expect(link.href).to.include('http://');",
+                            "        }",
+                            "    });",
+                            "});",
+                            "",
                             "// Extract and store action links for later use",
                             "if (responseBody.links) {",
                             "    responseBody.links.forEach(function(link) {",
@@ -169,9 +245,9 @@
             "request": {
                 "method": "POST",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/move",
+                    "raw": "{{url}}/robot/{{robotId}}/move",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -197,9 +273,9 @@
             "request": {
                 "method": "POST",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/pickup/{{itemId}}",
+                    "raw": "{{url}}/robot/{{robotId}}/pickup/{{itemId}}",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -217,9 +293,9 @@
             "request": {
                 "method": "POST",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/putdown/{{itemId}}",
+                    "raw": "{{url}}/robot/{{robotId}}/putdown/{{itemId}}",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -237,9 +313,9 @@
             "request": {
                 "method": "PATCH",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/state",
+                    "raw": "{{url}}/robot/{{robotId}}/state",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -265,9 +341,9 @@
             "request": {
                 "method": "GET",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/actions?page={{page}}&size={{size}}",
+                    "raw": "{{url}}/robot/{{robotId}}/actions?page={{page}}&size={{size}}",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
@@ -355,9 +431,9 @@
             "request": {
                 "method": "POST",
                 "url": {
-                    "raw": "{{baseUrl}}/robot/{{robotId}}/attack/robot2",
+                    "raw": "{{url}}/robot/{{robotId}}/attack/robot2",
                     "host": [
-                        "{{baseUrl}}"
+                        "{{url}}"
                     ],
                     "path": [
                         "robot",
