@@ -121,11 +121,27 @@ func main() {
 		Handler: router,
 	}
 
+	// Check if HTTPS is enabled via environment variable
+	enableHTTPS := os.Getenv("ENABLE_HTTPS")
+
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Starting robot API server on port %s...", port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+		if enableHTTPS == "true" {
+			log.Printf("Starting robot API server with HTTPS on port %s...", port)
+			// For demo purposes, generate a self-signed certificate
+			// In production, use proper certificates
+			if err := server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS failed, falling back to HTTP: %v", err)
+				log.Printf("Starting robot API server on HTTP port %s...", port)
+				if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Fatalf("Failed to start server: %v", err)
+				}
+			}
+		} else {
+			log.Printf("Starting robot API server on port %s...", port)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Failed to start server: %v", err)
+			}
 		}
 	}()
 

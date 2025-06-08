@@ -46,8 +46,8 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 **Environment variables:**
 
 - `local`: `http://localhost:8080` (local development server)
-- `cloudHttp`: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080` (Azure HTTP deployment)
-- `cloudHttps`: `https://robot-api-https-milad9a.westeurope.cloudapp.azure.com` (Azure HTTPS deployment)
+- `cloudHttp`: `http://robot-api-milad9a.westeurope.cloudapp.azure.com` (cloud HTTP)
+- `cloudHttps`: `https://robot-api-milad9a.westeurope.cloudapp.azure.com` (cloud HTTPS)
 - `url`: `{{local}}` (active endpoint - change this to switch environments)
 - `robotId`: `robot1` (default robot for testing)
 - `itemId`: `item1` (default item for testing)
@@ -58,16 +58,25 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 2. **Cloud HTTP Testing**: Set `url` to `{{cloudHttp}}`
 3. **Cloud HTTPS Testing**: Set `url` to `{{cloudHttps}}`
 
-All requests use `{{url}}` so you only need to change one variable to test different environments.
+**Note**: Both `cloudHttp` and `cloudHttps` use the same domain (`robot-api-milad9a.westeurope.cloudapp.azure.com`) but different protocols.
 
 ## Cloud Deployment
 
 ### HTTPS Support
 
-The Azure deployment includes HTTPS support through Azure Application Gateway:
+The Azure deployment provides both HTTP and HTTPS on the same domain through Azure Application Gateway:
 
-- **HTTP Endpoint**: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080`
-- **HTTPS Endpoint**: Available through Application Gateway (requires SSL certificate configuration)
+- **Unified Domain**: `robot-api-milad9a.westeurope.cloudapp.azure.com`
+- **HTTP URL**: `http://robot-api-milad9a.westeurope.cloudapp.azure.com`
+- **HTTPS URL**: `https://robot-api-milad9a.westeurope.cloudapp.azure.com`
+- **Container Direct**: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080`
+
+**Benefits of unified domain:**
+
+- Same URL works for both HTTP and HTTPS
+- Easy to switch protocols by just changing `http://` to `https://`
+- Standard web practice
+- Single SSL certificate covers both
 
 #### SSL Certificate Configuration
 
