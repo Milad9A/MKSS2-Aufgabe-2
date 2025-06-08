@@ -236,8 +236,15 @@ deploy:
 
       echo "Container IP: $CONTAINER_IP"
 
-      # Create Application Gateway with basic HTTP configuration
-      # Note: SSL certificate would need to be added separately for production
+      # Generate self-signed certificate for testing
+      echo "🔐 Creating self-signed certificate for HTTPS testing..."
+      openssl req -x509 -newkey rsa:4096 -keyout robot-api-key.pem -out robot-api-cert.pem -days 365 -nodes \
+        -subj "/C=DE/ST=Bremen/L=Bremen/O=HSB/OU=MKSS2/CN=robot-api-https-milad9a.westeurope.cloudapp.azure.com"
+
+      # Convert to PFX format (required by Application Gateway)
+      openssl pkcs12 -export -out robot-api.pfx -inkey robot-api-key.pem -in robot-api-cert.pem -passout pass:TempPassword123!
+
+      # Create Application Gateway with HTTPS support
       az network application-gateway create \
         --resource-group $AZURE_RESOURCE_GROUP \
         --name robot-api-gateway \
@@ -252,6 +259,47 @@ deploy:
         --http-settings-protocol Http \
         --public-ip-address robot-api-gateway-ip \
         --servers $CONTAINER_IP || echo "Application Gateway creation skipped (may already exist)"
+
+      # Add HTTPS listener and certificate
+      echo "🔒 Configuring HTTPS listener..."
+
+      # Upload SSL certificate
+      az network.application-gateway.ssl-cert.create \
+        --gateway-name robot-api-gateway \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name robot-api-ssl-cert \
+        --cert-file robot-api.pfx \
+        --cert-password TempPassword123! || echo "Certificate already exists"
+
+      # Add HTTPS frontend port
+      az network application-gateway.frontend-port.create \
+        --gateway-name robot-api-gateway \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name httpsPort \
+        --port 443 || echo "HTTPS port already exists"
+
+      # Add HTTPS listener
+      az network.application-gateway.http-listener.create \
+        --gateway-name robot-api-gateway \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name httpsListener \
+        --frontend-ip appGatewayFrontendIP \
+        --frontend-port httpsPort \
+        --protocol Https \
+        --ssl-cert robot-api-ssl-cert || echo "HTTPS listener already exists"
+
+      # Add HTTPS routing rule
+      az network.application-gateway.rule.create \
+        --gateway-name robot-api-gateway \
+        --resource-group $AZURE_RESOURCE_GROUP \
+        --name httpsRule \
+        --http-listener httpsListener \
+        --rule-type Basic \
+        --address-pool appGatewayBackendPool \
+        --http-settings appGatewayBackendHttpSettings || echo "HTTPS rule already exists"
+
+      # Clean up certificate files
+      rm -f robot-api-key.pem robot-api-cert.pem robot-api.pfx
 
     # Verify deployment
     - echo "⏳ Waiting for container to start..."
@@ -271,18 +319,23 @@ deploy:
 
     # Get the Application Gateway public IP FQDN
     - |
-      GATEWAY_FQDN=$(az network.public-ip show \
+      GATEWAY_FQDN=$(az network public-ip show \
         --resource-group $AZURE_RESOURCE_GROUP \
         --name robot-api-gateway-ip \
         --query dnsSettings.fqdn -o tsv) || GATEWAY_FQDN=""
 
       if [ -n "$GATEWAY_FQDN" ]; then
         echo "🌐 Application Gateway FQDN: $GATEWAY_FQDN"
-        echo "🌐 HTTPS endpoint will be: https://$GATEWAY_FQDN"
+        echo "🌐 HTTP endpoint: http://$GATEWAY_FQDN"
+        echo "🌐 HTTPS endpoint: https://$GATEWAY_FQDN"
         
-        # Test through Application Gateway (HTTP for now, HTTPS would require SSL cert)
-        echo "Testing through Application Gateway..."
-        curl -f --connect-timeout 10 --max-time 30 "http://$GATEWAY_FQDN/health" || echo "⚠️ Gateway health check failed"
+        # Test HTTP through Application Gateway
+        echo "Testing HTTP through Application Gateway..."
+        curl -f --connect-timeout 10 --max-time 30 "http://$GATEWAY_FQDN/health" || echo "⚠️ Gateway HTTP health check failed"
+        
+        # Test HTTPS through Application Gateway (ignore self-signed cert warnings)
+        echo "Testing HTTPS through Application Gateway..."
+        curl -k -f --connect-timeout 10 --max-time 30 "https://$GATEWAY_FQDN/health" || echo "⚠️ Gateway HTTPS health check failed"
       else
         echo "⚠️ Application Gateway not available, testing direct container access"
       fi
@@ -325,12 +378,14 @@ deploy:
     - echo "═══════════════════════════════════════════"
     - |
       if [ -n "$GATEWAY_FQDN" ]; then
-        echo "🔒 HTTPS Ready Endpoint: http://$GATEWAY_FQDN (SSL cert required for HTTPS)"
-        echo "💡 To enable HTTPS: Configure SSL certificate on Application Gateway"
+        echo "🔒 Application Gateway HTTP: http://$GATEWAY_FQDN"
+        echo "🔒 Application Gateway HTTPS: https://$GATEWAY_FQDN"
+        echo "⚠️  Using self-signed certificate (browser will show warning)"
+        echo "💡 For production: Replace with proper SSL certificate"
         echo "💡 Certificate options:"
         echo "   - Azure Key Vault certificate"
-        echo "   - Let's Encrypt (with custom automation)"
-        echo "   - Upload custom certificate"
+        echo "   - Let's Encrypt certificate"
+        echo "   - Commercial SSL certificate"
       fi
     - echo "═══════════════════════════════════════════"
 
