@@ -46,8 +46,8 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 **Environment variables:**
 
 - `local`: `http://localhost:8080` (local development server)
-- `cloudHttp`: `http://robot-api-milad9a.westeurope.cloudapp.azure.com` (cloud HTTP)
-- `cloudHttps`: `https://robot-api-milad9a.westeurope.cloudapp.azure.com` (cloud HTTPS)
+- `cloudHttp`: `http://robot-api-milad9a.westeurope.cloudapp.azure.com`
+- `cloudHttps`: `https://robot-api-milad9a.westeurope.cloudapp.azure.com`
 - `url`: `{{local}}` (active endpoint - change this to switch environments)
 - `robotId`: `robot1` (default robot for testing)
 - `itemId`: `item1` (default item for testing)
@@ -61,6 +61,16 @@ A complete Postman collection is included in the project (`Robot_API.postman_col
 **Note**: Both `cloudHttp` and `cloudHttps` use the same domain (`robot-api-milad9a.westeurope.cloudapp.azure.com`) but different protocols.
 
 ## Cloud Deployment
+
+### Deployment Architecture
+
+The application is deployed on Azure with the following architecture:
+
+1. **Azure Container Instance**: Runs the Go application (HTTP backend on port 8080)
+   - Direct URL: `http://robot-api-milad9a.westeurope.azurecontainer.io:8080`
+2. **Azure Application Gateway**: Provides load balancing and HTTPS termination
+   - HTTP URL: `http://robot-api-milad9a.westeurope.cloudapp.azure.com`
+   - HTTPS URL: `https://robot-api-milad9a.westeurope.cloudapp.azure.com`
 
 ### HTTPS Support
 
@@ -78,29 +88,11 @@ The Azure deployment provides both HTTP and HTTPS on the same domain through Azu
 - Standard web practice
 - Single SSL certificate covers both
 
-#### SSL Certificate Configuration
+**Current SSL Certificate Status:**
 
-To enable full HTTPS support, configure an SSL certificate on the Application Gateway:
-
-1. **Using Azure Key Vault** (Recommended):
-
-   ```bash
-   # Create/import certificate in Key Vault
-   az keyvault certificate create --vault-name your-vault --name robot-api-cert --policy "$(az keyvault certificate get-default-policy)"
-
-   # Configure Application Gateway to use the certificate
-   az network application-gateway ssl-cert create --gateway-name robot-api-gateway --resource-group robotApiGroup --name robot-api-ssl --key-vault-secret-id https://your-vault.vault.azure.net/secrets/robot-api-cert
-   ```
-
-2. **Using Let's Encrypt** (Free):
-
-   - Configure automatic certificate renewal
-   - Use Azure Key Vault integration
-
-3. **Upload Custom Certificate**:
-   ```bash
-   az network application-gateway ssl-cert create --gateway-name robot-api-gateway --resource-group robotApiGroup --name robot-api-ssl --cert-file cert.pfx --cert-password yourpassword
-   ```
+- The pipeline automatically generates a self-signed certificate for testing
+- ⚠️ Browsers will show a security warning due to the self-signed certificate
+- For production use, replace with a proper SSL certificate
 
 ### GitLab CI/CD Pipeline
 
@@ -116,8 +108,9 @@ The project includes automated deployment to Azure Container Instances with HTTP
 
 - Azure Container Instance (HTTP backend)
 - Application Gateway (HTTPS termination)
-- Public IP with DNS name
+- Public IP with DNS name (`robot-api-milad9a.westeurope.cloudapp.azure.com`)
 - Virtual Network for Application Gateway
+- Self-signed SSL certificate for HTTPS testing
 
 ### Security Features
 
@@ -125,12 +118,15 @@ The project includes automated deployment to Azure Container Instances with HTTP
 - **TLS Termination**: SSL/TLS handled at the gateway level
 - **Header Detection**: Application detects HTTPS from proxy headers
 - **Secure HATEOAS Links**: All links use HTTPS when accessed through secure endpoints
+- **CORS Support**: Cross-origin requests enabled for web applications
 
 ## API Endpoints
 
 | Method | Endpoint                        | Description                    |
 | ------ | ------------------------------- | ------------------------------ |
 | GET    | `/health`                       | Health check                   |
+| GET    | `/`                             | API information and endpoints  |
+| GET    | `/items`                        | List available items           |
 | GET    | `/robot/{id}/status`            | Get robot status               |
 | POST   | `/robot/{id}/move`              | Move robot                     |
 | POST   | `/robot/{id}/pickup/{itemId}`   | Pick up item                   |
@@ -138,7 +134,6 @@ The project includes automated deployment to Azure Container Instances with HTTP
 | PATCH  | `/robot/{id}/state`             | Update robot state             |
 | GET    | `/robot/{id}/actions`           | Get action history (paginated) |
 | POST   | `/robot/{id}/attack/{targetId}` | Attack another robot           |
-| GET    | `/items`                        | List available items           |
 
 **All endpoints support both HTTP and HTTPS protocols.**
 
