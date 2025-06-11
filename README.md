@@ -112,6 +112,57 @@ The project includes automated deployment to Azure Container Instances with HTTP
 - Virtual Network for Application Gateway
 - Self-signed SSL certificate for HTTPS testing
 
+### Manual Deployment
+
+The project includes a script for manual deployment to Azure Container Instances with HTTPS support.
+
+**Security Note**: Sensitive credentials are managed through environment variables, not hardcoded in scripts.
+
+To manually deploy:
+
+1. Create your environment file:
+
+   ```bash
+   cp .env.template .env
+   ```
+
+2. Edit `.env` with your actual credentials:
+
+   ```
+   # Azure credentials
+   AZURE_SP_ID="your-service-principal-id"
+   AZURE_SP_PASSWORD="your-service-principal-password"
+   AZURE_SUBSCRIPTION_ID="your-subscription-id"
+   AZURE_TENANT_ID="your-tenant-id"
+
+   # GitLab registry credentials
+   CI_REGISTRY_USER="your-gitlab-username"
+   CI_REGISTRY_PASSWORD="your-gitlab-personal-access-token"
+
+   # Configuration (typically no need to change)
+   CI_PROJECT_NAME="robot-api-awad"
+   CI_PROJECT_PATH="hsbremen/mkss2/sose-2025/labor/robot-api-awad"
+   CI_REGISTRY="registry.gitlab.com"
+   ```
+
+3. Make the deployment script executable:
+
+   ```bash
+   chmod +x deploy-to-azure.sh
+   ```
+
+4. Run the deployment:
+   ```bash
+   ./deploy-to-azure.sh
+   ```
+
+**Security Best Practices**:
+
+- Never commit `.env` files to version control
+- Use different service principals for different environments
+- Regularly rotate credentials
+- Use the principle of least privilege for service principals
+
 ### Security Features
 
 - **HTTPS Redirect**: Application Gateway can redirect HTTP to HTTPS
